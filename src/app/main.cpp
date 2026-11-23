@@ -14,11 +14,15 @@ void usage() {
         "  --size WxH             window size (default 1280x720)\n"
         "  --screenshot FILE.bmp  play CPU turns offscreen, save one frame and exit\n"
         "  --scene NAME           what to capture: menu | aim | flight | blast | debris |\n"
-        "                         settle | round | over | pause | help (default aim)\n"
-        "  --seed N               match seed for --screenshot (default 12345)\n"
+        "                         settle | round | over | pause | help | cover (default aim)\n"
+        "  --seed N               match seed (screenshot default 12345; record and cover\n"
+        "                         default: the best of 160 auditioned seeds)\n"
         "  --players N            CPU players for --screenshot (2-4, default 4)\n"
         "  --turns N              turns to play before capturing (default 3)\n"
-        "  --human                make player 1 human (captures their first turn)\n");
+        "  --human                make player 1 human (captures their first turn)\n"
+        "  --record FILE|-        play the showcase clip, writing raw RGB24 frames\n"
+        "                         (- = stdout; see tools/make_media.sh)\n"
+        "  --fps N                frame rate for --record (default 30)\n");
 }
 
 }  // namespace
@@ -52,6 +56,12 @@ int main(int argc, char* argv[]) {
             ++i;
         } else if (a == "--human") {
             opt.human = true;
+        } else if (a == "--record" && next) {
+            opt.record = next;
+            ++i;
+        } else if (a == "--fps" && next) {
+            opt.fps = std::atoi(next);
+            ++i;
         } else if (a == "--help" || a == "-h") {
             usage();
             return 0;

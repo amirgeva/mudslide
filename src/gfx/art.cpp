@@ -274,7 +274,7 @@ void logo(const Pen& p) {
         return false;
     };
     // Body: the union of lit cells, with outward corners rounded.
-    const float rc = 0.38f;
+    const float rc = 0.26f;
     auto inBody = [&](float x, float y) {
         const int cx = int(std::floor(x)), cy = int(std::floor(y));
         if (!on(cx, cy)) return false;

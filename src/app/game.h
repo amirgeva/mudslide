@@ -19,11 +19,13 @@ struct Options {
     int width = 1280;
     int height = 720;
     std::string screenshot;      // render one frame to this .bmp and exit
-    std::string scene = "aim";   // menu | aim | flight | blast | debris | settle | round | over | pause | help
+    std::string scene = "aim";   // menu | aim | flight | blast | debris | settle | round | over | pause | help | cover
     uint64_t seed = 0;           // 0 = random
     int players = 4;             // screenshot: number of CPU players
     int turns = 3;               // screenshot: turns to play before capturing
     bool human = false;          // screenshot: player 1 is human (captures their first turn)
+    std::string record;          // play the showcase clip, raw RGB24 frames to this file ("-" = stdout)
+    int fps = 30;                // frame rate for --record
 };
 
 class Game {
@@ -65,9 +67,20 @@ private:
         int variant;
     };
 
+    // A match seed picked for showing the game off, and when its highlights happen.
+    struct Showcase {
+        uint64_t seed = 1;
+        float length = 20.f;   // seconds of match worth recording
+        float heavyAt = -1.f;  // match clock of the first heavy blast (-1: none)
+        float mudAt = -1.f;    // ... and of the first mud ball landing
+    };
+
     bool init(const Options& opt);
     void shutdown();
     int runScreenshot(const Options& opt);
+    int runRecord(const Options& opt);
+    void configureShowcase();
+    Showcase pickShowcase(float seconds) const;
 
     // Flow.
     MatchSetup setupFromSettings(uint64_t seed) const;
@@ -112,6 +125,7 @@ private:
     void renderScoreboard(const Match& m);
     void renderPause();
     void renderHelp();
+    void renderCover();
     void renderMenu();
     void renderCaption();
 
@@ -137,6 +151,7 @@ private:
     bool vsync_ = false;
     bool persist_ = true;
     bool fixedView_ = false;
+    bool cover_ = false;  // cover image: world fills the frame, title on top, no HUD
     int viewW_ = 0, viewH_ = 0;
     float time_ = 0.f;
     uint32_t rngState_ = 0x9E3779B9u;

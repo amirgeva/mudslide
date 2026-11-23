@@ -4,6 +4,11 @@
 #include <cmath>
 #include <cstdio>
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 #include "gfx/art.h"
 #include "gfx/canvas.h"
 #include "gfx/font.h"
@@ -12,6 +17,7 @@ namespace mud {
 namespace {
 
 constexpr float kPi = 3.14159265f;
+constexpr float kShowcaseWindow = 25.f;  // seconds of match auditioned for the clip and the cover
 const char* const kPlayerNames[kMaxPlayers] = {"RED", "BLUE", "GOLD", "VIOLET"};
 
 SDL_Color rgba(Uint8 r, Uint8 g, Uint8 b, Uint8 a = 255) { return SDL_Color{r, g, b, a}; }
@@ -54,8 +60,8 @@ int Game::run(const Options& opt) {
         shutdown();
         return 1;
     }
-    if (!opt.screenshot.empty()) {
-        const int rc = runScreenshot(opt);
+    if (!opt.screenshot.empty() || !opt.record.empty()) {
+        const int rc = opt.record.empty() ? runScreenshot(opt) : runRecord(opt);
         shutdown();
         return rc;
     }
@@ -81,7 +87,7 @@ int Game::run(const Options& opt) {
 }
 
 bool Game::init(const Options& opt) {
-    const bool offscreen = !opt.screenshot.empty();
+    const bool offscreen = !opt.screenshot.empty() || !opt.record.empty();
     persist_ = !offscreen;
     SDL_SetHint("SDL_WINDOWS_DPI_AWARENESS", "permonitorv2");
     SDL_SetHint("SDL_WINDOWS_DPI_SCALING", "1");
@@ -167,6 +173,23 @@ int Game::runScreenshot(const Options& opt) {
     if (opt.scene == "menu") {
         startDemo(seed);
         for (int i = 0; i < 60 * 8; ++i) update(step);
+    } else if (opt.scene == "cover") {
+        // The showcase match, caught at the first blast after its mud ball has
+        // landed (so the ground is already churned up), or else its first big one.
+        configureShowcase();
+        Showcase show;
+        if (opt.seed) show.seed = opt.seed;
+        else show = pickShowcase(kShowcaseWindow);
+        startMatch(show.seed);
+        auto ready = [&] {
+            const bool afterMud = show.mudAt >= 0.f && match_->clock() > show.mudAt + 1.f;
+            for (const Flash& f : flashes_)
+                if (f.t >= 0.1f && (f.r >= 44.f || (afterMud && f.r >= 25.f))) return true;
+            return false;
+        };
+        for (int i = 0; i < 60 * 300 && !ready(); ++i) update(step);
+        cover_ = true;
+        floaters_.clear();  // no damage numbers on the cover
     } else {
         settings_.players = std::clamp(opt.players, 2, kMaxPlayers);
         for (int k = 0; k < kMaxPlayers; ++k) settings_.control[size_t(k)] = int(k % 2 ? Control::CpuNormal : Control::CpuHard);
@@ -210,6 +233,151 @@ int Game::runScreenshot(const Options& opt) {
     if (surf) SDL_FreeSurface(surf);
     if (saved != 0) SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Could not save screenshot: %s", SDL_GetError());
     return saved == 0 ? 0 : 1;
+}
+
+// Four CPU tanks, three rounds, a breeze: the match used for the gameplay
+// clip and the cover image.
+void Game::configureShowcase() {
+    settings_ = Settings{};
+    settings_.players = 4;
+    settings_.control = {int(Control::CpuHard), int(Control::CpuNormal), int(Control::CpuHard), int(Control::CpuNormal)};
+    settings_.roundChoice = 1;
+    settings_.wind = 2;
+}
+
+// Matches are deterministic, so seeds can be auditioned headlessly: the one
+// whose first `seconds` pack in the most (a heavy blast, a cluster burst, a
+// mud ball, a tank falling, a shot drilling out of dirt, a tank destroyed)
+// is the one the recording will replay exactly.
+Game::Showcase Game::pickShowcase(float seconds) const {
+    Showcase best;
+    float bestScore = -1e9f;
+    for (uint64_t seed = 1; seed <= 160; ++seed) {
+        Match m(setupFromSettings(seed));
+        Showcase s;
+        s.seed = seed;
+        float last = 0.f, split = -1.f, death = -1.f, fall = -1.f, bore = -1.f;
+        int hits = 0;
+        while (m.clock() < seconds && m.phase() != Phase::RoundOver) {
+            m.update(1.f / 30.f);
+            for (const Event& e : m.takeEvents()) {
+                auto first = [&](float& at) {
+                    if (at < 0.f) last = std::max(last, at = m.clock());
+                };
+                switch (e.type) {
+                    case EventType::Explode:
+                        if (e.weapon == int(Weapon::Heavy)) first(s.heavyAt);
+                        break;
+                    case EventType::MudSplat: first(s.mudAt); break;
+                    case EventType::Split: first(split); break;
+                    case EventType::TankDeath: first(death); break;
+                    case EventType::TankLand:
+                        if (e.r >= 20.f) first(fall);
+                        break;
+                    case EventType::Bore: first(bore); break;
+                    case EventType::TankHit: ++hits; break;
+                    default: break;
+                }
+            }
+        }
+        auto has = [](float at) { return at >= 0.f ? 1.f : 0.f; };
+        // Bright daytime maps show the game off best.
+        const float themeBonus = m.theme() == 0 || m.theme() == 1 ? 4.5f : m.theme() == 2 ? 1.5f : 0.f;
+        const float score = 6.f * has(s.mudAt) + 2.f * has(s.heavyAt) + 2.f * has(split) + 4.f * has(death) +
+                            has(fall) + has(bore) + 0.2f * float(std::min(hits, 10)) - 0.04f * last + themeBonus;
+        if (score > bestScore) {
+            bestScore = score;
+            s.length = std::max(14.f, last + 3.5f);
+            best = s;
+        }
+    }
+    std::fprintf(stderr, "showcase: seed %llu, %.1f s, heavy at %.1f, mud at %.1f\n", (unsigned long long)best.seed,
+                 double(best.length), double(best.heavyAt), double(best.mudAt));
+    return best;
+}
+
+// Plays the showcase clip at a fixed frame rate and writes every frame as raw
+// RGB24 (pipe it into ffmpeg; see tools/make_media.sh): a moment on the menu,
+// then the showcase match with a caption on its first heavy blast and mud ball.
+int Game::runRecord(const Options& opt) {
+    fixedView_ = true;
+    viewW_ = opt.width;
+    viewH_ = opt.height;
+    configureShowcase();
+    Showcase show;
+    if (opt.seed) {
+        show.seed = opt.seed;
+        show.length = kShowcaseWindow;
+    } else {
+        show = pickShowcase(kShowcaseWindow);
+    }
+
+    FILE* out = nullptr;
+    if (opt.record == "-") {
+#ifdef _WIN32
+        _setmode(_fileno(stdout), _O_BINARY);
+#endif
+        out = stdout;
+    } else {
+        out = std::fopen(opt.record.c_str(), "wb");
+    }
+    if (!out) {
+        std::fprintf(stderr, "cannot open %s for writing\n", opt.record.c_str());
+        return 1;
+    }
+    SDL_Texture* target = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, viewW_, viewH_);
+    if (!target) {
+        std::fprintf(stderr, "render target unavailable: %s\n", SDL_GetError());
+        if (out != stdout) std::fclose(out);
+        return 1;
+    }
+
+    const int fps = std::clamp(opt.fps, 10, 60);
+    const float dt = 1.f / float(fps);
+    std::vector<uint8_t> px(size_t(viewW_) * size_t(viewH_) * 3);
+    int frames = 0;
+    bool ok = true;
+    auto frame = [&] {
+        update(dt);
+        SDL_SetRenderTarget(renderer_, target);
+        render();
+        if (SDL_RenderReadPixels(renderer_, nullptr, SDL_PIXELFORMAT_RGB24, px.data(), viewW_ * 3) != 0) ok = false;
+        SDL_SetRenderTarget(renderer_, nullptr);
+        if (std::fwrite(px.data(), 1, px.size(), out) != px.size()) ok = false;
+        ++frames;
+    };
+
+    // The menu, over a demo match that has already got going.
+    startDemo(show.seed + 1000u);
+    scene_ = Scene::Menu;
+    menuSel_ = 0;
+    for (int i = 0; i < fps * 3; ++i) update(dt);
+    for (int i = 0; i < int(2.4f * float(fps)) && ok; ++i) frame();
+
+    // The match itself, with captions on its highlights.
+    startMatch(show.seed);
+    struct Cue {
+        float at;
+        const char* text;
+        bool shown;
+    };
+    Cue cues[] = {{show.heavyAt, "BLASTS THROW THE DIRT AROUND", false},
+                  {show.mudAt, "MUD SLIDES DOWNHILL AND BURIES TANKS", false}};
+    while (ok && match_->clock() < show.length) {
+        for (Cue& c : cues)
+            if (!c.shown && c.at >= 0.f && match_->clock() >= c.at) {
+                showCaption(c.text, 2.6f);
+                c.shown = true;
+            }
+        frame();
+    }
+
+    SDL_DestroyTexture(target);
+    std::fflush(out);
+    if (out != stdout) std::fclose(out);
+    std::fprintf(stderr, "recorded %d frames (%.1f s at %d fps, %dx%d)%s\n", frames, double(frames) / fps, fps, viewW_,
+                 viewH_, ok ? "" : " - WRITE ERRORS");
+    return ok ? 0 : 1;
 }
 
 // ---------------------------------------------------------------- flow
@@ -876,7 +1044,8 @@ int Game::uiScale() const { return std::max(1, std::min(viewW_ / 560, viewH_ / 3
 
 Game::View Game::worldView() const {
     View v;
-    v.s = std::min(float(viewW_) / float(kWorldW), float(viewH_) / float(kWorldH));
+    const float sx = float(viewW_) / float(kWorldW), sy = float(viewH_) / float(kWorldH);
+    v.s = cover_ ? std::max(sx, sy) : std::min(sx, sy);  // the cover fills the frame, cropping the edges
     v.ox = std::floor((float(viewW_) - float(kWorldW) * v.s) * 0.5f);
     v.oy = std::floor((float(viewH_) - float(kWorldH) * v.s) * 0.5f);
     return v;
@@ -887,6 +1056,11 @@ void Game::render() {
     SDL_SetRenderDrawColor(renderer_, 14, 10, 8, 255);
     SDL_RenderClear(renderer_);
     Match* m = scene_ == Scene::Menu ? demo_.get() : match_.get();
+    if (cover_) {
+        if (m) renderWorld(*m);
+        renderCover();
+        return;
+    }
     if (m) renderWorld(*m);
     if (scene_ == Scene::Menu) {
         renderMenu();
@@ -1283,6 +1457,30 @@ void Game::renderHelp() {
         ry += 11 * u;
     }
     drawText("F1 OR ESC TO CLOSE", x + w / 2, y + h - 12 * u, u, rgba(160, 150, 140), 0);
+}
+
+// Cover image: the logo and a tagline over the action, the sky darkened
+// behind them so they read.
+void Game::renderCover() {
+    const int fade = int(float(viewH_) * 0.62f);
+    for (int y = 0; y < fade; ++y) {
+        const float t = float(y) / float(fade);
+        fillRect(0.f, float(y), float(viewW_), 1.f, rgba(10, 7, 5, Uint8(std::lround(165.f * std::pow(1.f - t, 1.6f)))));
+    }
+    const int cell = std::max(2, int(float(viewW_) * 0.6f / float(art::kLogoW)));
+    ensureLogo(cell);
+    const int lw = art::kLogoW * cell, lh = art::kLogoH * cell;
+    const int ly = int(float(viewH_) * 0.07f);
+    if (logo_) {
+        const SDL_Rect dst{(viewW_ - lw) / 2, ly, lw, lh};
+        SDL_RenderCopy(renderer_, logo_, nullptr, &dst);
+    }
+    const int scale = std::max(1, viewW_ / 430);
+    const std::string tagline = "TURN-BASED ARTILLERY ON SLIPPERY GROUND";
+    const int tw = textWidth(tagline, scale), ty = ly + lh + scale * 3;
+    fillRect(float((viewW_ - tw) / 2 - 6 * scale), float(ty - 3 * scale), float(tw + 12 * scale), float(13 * scale),
+             rgba(18, 11, 6, 170));
+    drawText(tagline, viewW_ / 2, ty, scale, rgba(250, 230, 196), 0);
 }
 
 void Game::renderMenu() {
