@@ -13,6 +13,10 @@
 #include "gfx/canvas.h"
 #include "gfx/font.h"
 
+#ifndef MUD_VERSION
+#define MUD_VERSION "DEV"
+#endif
+
 namespace mud {
 namespace {
 
@@ -1544,6 +1548,7 @@ void Game::renderMenu() {
                                " CHANGE   ENTER START   F1 HELP";
     drawText(footer, cx, viewH_ - 12 * u, u, rgba(190, 180, 168), 0);
     if (settings_.muted) drawText("SOUND OFF", viewW_ - 6 * u, 6 * u, u, rgba(190, 180, 168), 1);
+    drawText("V" MUD_VERSION, 6 * u, viewH_ - 12 * u, u, rgba(150, 140, 128));
 }
 
 void Game::renderCaption() {

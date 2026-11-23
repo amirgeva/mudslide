@@ -144,6 +144,25 @@ cmake --build build -j
 The game has been built and tested on Windows only. The Linux and macOS steps
 use only SDL2 and the standard library, but have not been tried yet.
 
+### Windows release and itch.io
+
+`tools/release_windows.sh` builds a self-contained release: SDL2 and the C++
+runtime are linked statically (vcpkg triplet `x64-windows-static`), so players
+need no DLLs or Visual C++ redistributable. It runs the tests, checks the
+`.exe` imports only system DLLs, stages `dist/mudslide-<version>-windows/`
+(the game, a player readme, licenses and an `.itch.toml` launch manifest) and
+zips it. Given an itch.io project, it also uploads the folder to the
+`windows` channel with [butler](https://itch.io/docs/butler/):
+
+```sh
+tools/release_windows.sh                     # build, test and package only
+butler login                                 # once
+tools/release_windows.sh your-name/mudslide  # ... and upload
+```
+
+The version comes from `project(Mudslide VERSION ...)` in `CMakeLists.txt`
+and is shown on the menu.
+
 ## Tests
 
 `mud_tests` checks the simulation without opening a window:
@@ -212,7 +231,8 @@ first blast after the mud ball has landed, with the logo over it.
 src/core/   terrain, match rules and ballistics, computer players (no SDL dependency)
 src/gfx/    software rasterizer, procedural art and themes, 5x7 pixel font (no SDL dependency)
 src/app/    SDL2 game: menu, input, rendering and effects, synthesized audio, settings
-tools/      icongen (app icon as a Windows .ico at build time), make_media.sh (clip and cover)
+tools/      icongen (app icon as a Windows .ico at build time), make_media.sh (clip and cover),
+            release_windows.sh and release/ (Windows package and itch.io upload)
 tests/      headless simulation tests
 docs/       gameplay.mp4, gameplay.gif, cover.png, screenshot.png
 ```

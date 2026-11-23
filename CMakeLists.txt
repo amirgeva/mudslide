@@ -104,6 +104,7 @@ if(MUD_BUILD_GAME)
   endif()
 
   add_executable(mudslide WIN32 ${GAME_SOURCES})
+  target_compile_definitions(mudslide PRIVATE MUD_VERSION="${PROJECT_VERSION}")
   target_link_libraries(mudslide PRIVATE mud_core mud_art)
   if(TARGET SDL2::SDL2main)
     target_link_libraries(mudslide PRIVATE SDL2::SDL2main)

@@ -1,0 +1,4 @@
+# Copied into the release as .itch.toml: tells the itch.io app what to launch.
+[[actions]]
+name = "play"
+path = "mudslide.exe"
