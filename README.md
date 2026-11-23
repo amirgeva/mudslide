@@ -151,13 +151,14 @@ runtime are linked statically (vcpkg triplet `x64-windows-static`), so players
 need no DLLs or Visual C++ redistributable. It runs the tests, checks the
 `.exe` imports only system DLLs, stages `dist/mudslide-<version>-windows/`
 (the game, a player readme, licenses and an `.itch.toml` launch manifest) and
-zips it. Given an itch.io project, it also uploads the folder to the
-`windows` channel with [butler](https://itch.io/docs/butler/):
+zips it. Only with `--upload` does it also push the folder to the itch.io
+`windows` channel with [butler](https://itch.io/docs/butler/); the target
+project is read from `tools/release/itch-target`:
 
 ```sh
 tools/release_windows.sh                     # build, test and package only
 butler login                                 # once
-tools/release_windows.sh your-name/mudslide  # ... and upload
+tools/release_windows.sh --upload            # ... and upload to tools/release/itch-target
 ```
 
 The version comes from `project(Mudslide VERSION ...)` in `CMakeLists.txt`
@@ -203,13 +204,21 @@ build/Release/mud_tests 20        # play 20 full matches instead of 6
 For example, the weapons screenshot is
 `mudslide --screenshot shot.bmp --scene flight --seed 2 --turns 6`.
 
-### Regenerating the clip and the cover
+### Regenerating the media
 
-`tools/make_media.sh` makes `docs/gameplay.mp4` (1280 x 720, 30 fps),
-`docs/gameplay.gif` (800 px wide, 15 fps) and `docs/cover.png` (1280 x 640,
-the size GitHub uses for a repository's social preview). Both videos are
-encoded from the same lossless recording. You need bash and ffmpeg with
-libx264.
+`tools/make_media.sh` makes everything the README and the store page use:
+
+* `docs/gameplay.mp4` (1280 x 720, 30 fps) and `docs/gameplay.gif` (800 px
+  wide, 15 fps), both encoded from the same lossless recording;
+* `docs/store/screenshots/*.png`, six 1280 x 720 store screenshots, listed
+  with their game arguments in the script's CONFIG block;
+* `docs/cover.png` (1280 x 640, GitHub's social preview size) and
+  `docs/store/itch-cover.png` (630 x 500, itch.io's cover size; the logo and
+  tagline are scaled up so they still read at 315 x 250 in listings);
+* `dist/gameplay-sheet.png`, a contact sheet of the clip for checking it.
+
+The store texts live next to them in `docs/store/tagline.txt` and
+`docs/store/description.md`. You need bash and ffmpeg with libx264.
 
 ```sh
 tools/make_media.sh                    # uses build/Release/mudslide or build/mudslide
@@ -231,8 +240,9 @@ first blast after the mud ball has landed, with the logo over it.
 src/core/   terrain, match rules and ballistics, computer players (no SDL dependency)
 src/gfx/    software rasterizer, procedural art and themes, 5x7 pixel font (no SDL dependency)
 src/app/    SDL2 game: menu, input, rendering and effects, synthesized audio, settings
-tools/      icongen (app icon as a Windows .ico at build time), make_media.sh (clip and cover),
+tools/      icongen (app icon as a Windows .ico at build time), make_media.sh (clip, screenshots, covers),
             release_windows.sh and release/ (Windows package and itch.io upload)
 tests/      headless simulation tests
 docs/       gameplay.mp4, gameplay.gif, cover.png, screenshot.png
+docs/store/ itch.io page: tagline, description, cover, screenshots
 ```

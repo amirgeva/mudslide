@@ -34,7 +34,7 @@ Your menu choices are saved in %APPDATA%\Mudslide\Mudslide\settings.ini.
 
 LICENSE
 Mudslide is free software under the GNU General Public License, version 3
-(see licenses\Mudslide-GPL-3.0.txt). Source code:
-https://github.com/amirgeva/mudslide
+(see licenses\Mudslide-license.txt). Source code:
+{{SOURCE_URL}}
 
-It uses SDL2, under the zlib license (see licenses\SDL2.txt).
+It uses SDL2, under the zlib license (see licenses\sdl2.txt).

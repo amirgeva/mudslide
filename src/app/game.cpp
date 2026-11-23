@@ -1471,7 +1471,10 @@ void Game::renderCover() {
         const float t = float(y) / float(fade);
         fillRect(0.f, float(y), float(viewW_), 1.f, rgba(10, 7, 5, Uint8(std::lround(165.f * std::pow(1.f - t, 1.6f)))));
     }
-    const int cell = std::max(2, int(float(viewW_) * 0.6f / float(art::kLogoW)));
+    // Small covers (itch's 630x500, shown at 315x250 in listings) need a
+    // bigger logo and tagline relative to the frame to stay readable.
+    const bool small = viewW_ < 900;
+    const int cell = std::max(2, int(float(viewW_) * (small ? 0.8f : 0.6f) / float(art::kLogoW)));
     ensureLogo(cell);
     const int lw = art::kLogoW * cell, lh = art::kLogoH * cell;
     const int ly = int(float(viewH_) * 0.07f);
@@ -1479,8 +1482,9 @@ void Game::renderCover() {
         const SDL_Rect dst{(viewW_ - lw) / 2, ly, lw, lh};
         SDL_RenderCopy(renderer_, logo_, nullptr, &dst);
     }
-    const int scale = std::max(1, viewW_ / 430);
     const std::string tagline = "TURN-BASED ARTILLERY ON SLIPPERY GROUND";
+    // At least 14 px tall, and as wide as fits in 85% of the frame.
+    const int scale = std::max(small ? 2 : 1, std::min(viewW_ / 430, int(float(viewW_) * 0.85f) / textWidth(tagline, 1)));
     const int tw = textWidth(tagline, scale), ty = ly + lh + scale * 3;
     fillRect(float((viewW_ - tw) / 2 - 6 * scale), float(ty - 3 * scale), float(tw + 12 * scale), float(13 * scale),
              rgba(18, 11, 6, 170));
