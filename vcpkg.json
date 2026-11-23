@@ -1,0 +1,8 @@
+{
+  "name": "mudslide",
+  "version-string": "1.0.0",
+  "description": "Turn-based artillery duel on destructible, sliding mud hills.",
+  "dependencies": [
+    "sdl2"
+  ]
+}
