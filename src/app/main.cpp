@@ -14,7 +14,7 @@ void usage() {
         "  --size WxH             window size (default 1280x720)\n"
         "  --screenshot FILE.bmp  play CPU turns offscreen, save one frame and exit\n"
         "  --scene NAME           what to capture: menu | aim | flight | blast | debris |\n"
-        "                         settle | round | over | pause (default aim)\n"
+        "                         settle | round | over | pause | help (default aim)\n"
         "  --seed N               match seed for --screenshot (default 12345)\n"
         "  --players N            CPU players for --screenshot (2-4, default 4)\n"
         "  --turns N              turns to play before capturing (default 3)\n"

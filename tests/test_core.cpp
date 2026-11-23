@@ -214,6 +214,56 @@ void testHumanMud() {
     CHECK(countUnstable(m.terrain()) == 0, "terrain should be at rest after the turn");
 }
 
+// A heavy shell into open ground: most of the crater must come back down as
+// loose soil around it rather than vanish.
+void testDirtThrown() {
+    std::printf("blast dirt is thrown out and lands\n");
+    MatchSetup s;
+    s.players = {PlayerSetup{"A", Control::Human}, PlayerSetup{"B", Control::Human}};
+    s.wind = 0;
+    s.rounds = 1;
+    s.seed = 33;
+    Match m(s);
+    for (int i = 0; i < 2000 && !m.humanAiming(); ++i) m.update(kTick);
+    const int me = m.active();
+    const Tank& a = m.tanks()[0];
+    const Tank& b = m.tanks()[1];
+    const float goal = (a.x + b.x) * 0.5f;  // open ground between the tanks
+    float bestA = 90.f, bestP = 50.f, bestD = 1e9f;
+    for (float ang = 1.f; ang < 180.f; ang += 1.f)
+        for (float p = 10.f; p <= 100.f; p += 1.f) {
+            const ShotTrace tr = m.traceShot(me, ang, p);
+            if (!tr.impact || tr.tankHit >= 0) continue;
+            if (std::fabs(tr.x - goal) < bestD) {
+                bestD = std::fabs(tr.x - goal);
+                bestA = ang;
+                bestP = p;
+            }
+        }
+    const Tank& t = m.tanks()[size_t(me)];
+    m.adjustAim(bestA - t.angle, bestP - t.power);
+    m.selectWeapon(int(Weapon::Heavy));
+    auto looseCount = [&] {
+        long n = 0;
+        for (size_t k = 0; k < size_t(kWorldW) * kWorldH; ++k) n += isLoose(m.terrain().cells()[k]) ? 1 : 0;
+        return n;
+    };
+    const long before = m.terrain().countSolid(), looseBefore = looseCount();
+    m.fire();
+    float carved = 0.f;
+    for (int i = 0; i < 6000 && !(m.phase() == Phase::Aiming && m.active() != me); ++i) {
+        m.update(kTick);
+        for (const Event& e : m.takeEvents())
+            if (e.type == EventType::Explode) carved += e.amount;
+    }
+    CHECK(carved > 1000.f, "heavy shell carved only %.0f cells", carved);
+    const long after = m.terrain().countSolid();
+    const float kept = float(after - (before - long(carved))) / std::max(1.f, carved);
+    const float loose = float(looseCount() - looseBefore) / std::max(1.f, carved);
+    std::printf("  carved %.0f cells; %.0f%% came back down as loose soil\n", carved, loose * 100.f);
+    CHECK(kept >= 0.75f && loose >= 0.75f, "only %.0f%% of the crater landed again", kept * 100.f);
+}
+
 void testMatches(int count) {
     std::printf("full CPU matches\n");
     for (int i = 0; i < count; ++i) {
@@ -262,6 +312,7 @@ int main(int argc, char** argv) {
     testBallistics();
     testAi();
     testHumanMud();
+    testDirtThrown();
     testMatches(matches);
     if (g_failures) {
         std::printf("%d check(s) failed\n", g_failures);

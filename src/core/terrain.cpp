@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 #include "core/noise.h"
 #include "core/rng.h"
@@ -155,22 +156,31 @@ int Terrain::carve(float cx, float cy, float r, std::vector<Grain>* removed) {
 }
 
 int Terrain::deposit(float x, float y, uint8_t color, int cells) {
-    // Fill air cells in growing rings around the landing point, preferring
-    // the lower half so the clump sits on the ground; settling does the rest.
-    static const int8_t kRing[][2] = {{0, 0},  {-1, 0}, {1, 0},  {0, -1}, {-1, -1}, {1, -1}, {-2, 0}, {2, 0},
-                                      {0, -2}, {-2, -1}, {2, -1}, {-1, -2}, {1, -2}, {-3, 0}, {3, 0}, {0, -3},
-                                      {-2, -2}, {2, -2}, {-3, -1}, {3, -1}, {-1, -3}, {1, -3}, {-3, -2}, {3, -2}};
+    // Fill the air cells nearest the landing point (lower rows first among
+    // equals, so the clump sits on the ground) within a radius of 9, which
+    // holds even the biggest clod; settling then spreads the pile.
+    static const std::vector<std::pair<int8_t, int8_t>> kOffsets = [] {
+        std::vector<std::pair<int8_t, int8_t>> o;
+        for (int dy = -9; dy <= 2; ++dy)
+            for (int dx = -9; dx <= 9; ++dx)
+                if (dx * dx + dy * dy <= 81) o.push_back({int8_t(dx), int8_t(dy)});
+        std::stable_sort(o.begin(), o.end(), [](const auto& a, const auto& b) {
+            const int da = a.first * a.first + a.second * a.second, db = b.first * b.first + b.second * b.second;
+            return da != db ? da < db : a.second > b.second;
+        });
+        return o;
+    }();
     const int bx = int(std::floor(x)), by = int(std::floor(y));
     int placed = 0;
-    for (const auto& o : kRing) {
+    for (const auto& o : kOffsets) {
         if (placed >= cells) break;
-        const int px = bx + o[0], py = by + o[1];
+        const int px = bx + o.first, py = by + o.second;
         if (px < 0 || px >= W || py < 0 || py >= H) continue;
         if (cells_[size_t(py) * W + size_t(px)]) continue;
         put(px, py, color);
         ++placed;
     }
-    if (placed) wake(bx - 4, bx + 4);
+    if (placed) wake(bx - 11, bx + 11);
     return placed;
 }
 

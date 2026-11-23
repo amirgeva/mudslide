@@ -18,9 +18,9 @@ constexpr float kDeathDamage = 30.f;
 constexpr float kMaxFlight = 20.f;
 constexpr int kMaxTurns = 160;         // per round, then it is called a draw
 constexpr int kTracesPerTick = 20;     // AI search budget
-constexpr float kEjectFraction = 0.45f;  // share of a crater thrown out as clods
-constexpr int kMaxClodsPerBlast = 80;
-constexpr size_t kMaxClods = 600;
+constexpr float kEjectFraction = 0.85f;  // share of a crater thrown out as clods (the rest is blasted to dust)
+constexpr int kMaxClodsPerBlast = 160;
+constexpr size_t kMaxClods = 1500;
 
 const WeaponInfo kWeapons[kWeaponCount] = {
     {"SHELL", -1, 22.f, 34.f},
@@ -501,15 +501,20 @@ void Match::explodeProjectile(const Projectile& p, const Hit& hit) {
     e.weapon = p.weapon;
     e.material = kMudFirst + 4;
     push(e);
-    terrain_.addMud(hit.x, hit.y, r * 0.82f);
+    const float heap = r * 0.9f;
+    const int added = terrain_.addMud(hit.x, hit.y, heap);
+    // The whole ball always lands: whatever did not fit in the heap (the part
+    // that would be underground) splashes out around it, and at least a
+    // quarter splashes anyway.
+    const int volume = int(kPi * r * r * 0.85f);
     grains_.clear();
     for (int k = 0; k < 64; ++k) {
-        const float a = rng_.uniform(-kPi, 0.f);
-        const float d = r * rng_.uniform(0.5f, 0.95f);
+        const float a = rng_.uniform(-kPi + 0.25f, -0.25f);
+        const float d = heap + 1.5f;
         grains_.push_back(Grain{int16_t(std::floor(hit.x + std::cos(a) * d)), int16_t(std::floor(hit.y + std::sin(a) * d)),
                                 uint8_t(kMudFirst + rng_.below(kShades))});
     }
-    throwDirt(hit.x, hit.y, r, grains_, int(r * r * 0.9f), 240.f);
+    throwDirt(hit.x, r, grains_, std::max(volume - added, volume / 4), 55.f, 190.f);
     if (hit.tank >= 0) damage(hit.tank, dmg, p.owner);
     lastBlast_ = clock_;
 }
@@ -525,7 +530,11 @@ void Match::blast(float x, float y, float r, float dmg, int owner, int direct, i
     e.material = sampleMaterial(x, y);
     grains_.clear();
     const int removed = terrain_.carve(x, y, r, &grains_);
-    throwDirt(x, y, r, grains_, int(float(removed) * kEjectFraction), 150.f + r * 5.f);
+    // Slowest clods just clear the crater (range ~1.3 r); most land within a
+    // couple of radii as a raised rim, a few fly far.
+    const float vmin = std::sqrt(1.3f * r * kGravity);
+    throwDirt(x, r, grains_, int(float(removed) * kEjectFraction), vmin, vmin * 2.6f);
+    e.amount = float(removed);
     push(e);
     lastBlast_ = clock_;
     for (size_t k = 0; k < tanks_.size(); ++k) {
@@ -537,33 +546,29 @@ void Match::blast(float x, float y, float r, float dmg, int owner, int direct, i
     }
 }
 
-// Turns part of a crater into clods flying outward and upward from it.
-void Match::throwDirt(float cx, float cy, float r, const std::vector<Grain>& grains, int total, float speed) {
+// Throws `total` grains out of a crater (or a mud splash) as clods, launched
+// up and away from the centre line: steep near the middle, flatter toward
+// the edge. Speeds are skewed low, so most of the dirt lands close by.
+void Match::throwDirt(float cx, float r, const std::vector<Grain>& grains, int total, float vmin, float vmax) {
     if (grains.empty() || total <= 0 || clods_.size() >= kMaxClods) return;
-    const int count = std::clamp(total / 4, 1, kMaxClodsPerBlast);
-    const int per = std::clamp((total + count - 1) / count, 1, 255);
+    const int count = std::clamp(total / 12, 1, kMaxClodsPerBlast);
+    const int base = std::min(total / count, 254), extra = total - base * count;
     for (int i = 0; i < count && clods_.size() < kMaxClods; ++i) {
         const Grain& g = grains[rng_.below(uint32_t(grains.size()))];
         const float gx = float(g.x) + 0.5f, gy = float(g.y) + 0.5f;
-        float dx = gx - cx, dy = gy - cy;
-        const float len = std::hypot(dx, dy);
-        if (len < 1.f) {
-            dx = rng_.uniform(-0.3f, 0.3f);
-            dy = -1.f;
-        } else {
-            dx /= len;
-            dy /= len;
-        }
-        dy -= 0.8f;  // blasts throw dirt up and out, not into the ground
-        const float a = std::atan2(dy, dx) + rng_.uniform(-0.35f, 0.35f);
-        const float v = speed * rng_.uniform(0.35f, 1.f) * (0.6f + 0.4f * std::min(1.f, len / std::max(1.f, r)));
+        const float dx = gx - cx;
+        const float side = dx > 0.5f ? 1.f : dx < -0.5f ? -1.f : (rng_.uniform() < 0.5f ? -1.f : 1.f);
+        const float reach = std::min(1.f, std::fabs(dx) / std::max(1.f, r));
+        const float elev = (72.f - 37.f * reach + rng_.uniform(-12.f, 12.f)) * kDeg;
+        const float u = rng_.uniform();
+        const float v = vmin + (vmax - vmin) * u * u;
         Clod c;
         c.x = gx;
         c.y = gy;
-        c.vx = std::cos(a) * v;
-        c.vy = std::sin(a) * v;
+        c.vx = side * std::cos(elev) * v;
+        c.vy = -std::sin(elev) * v;
         c.color = looseOf(g.color);
-        c.cells = uint8_t(per);
+        c.cells = uint8_t(std::min(255, base + (i < extra ? 1 : 0)));
         clods_.push_back(c);
     }
 }

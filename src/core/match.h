@@ -112,7 +112,7 @@ enum class EventType { TurnStart, Fire, Bore, Split, Explode, MudSplat, TankHit,
 struct Event {
     EventType type = EventType::TurnStart;
     float x = 0.f, y = 0.f, r = 0.f;
-    float amount = 0.f;    // damage dealt (TankHit, TankLand); fall height (TankLand: r)
+    float amount = 0.f;    // damage dealt (TankHit, TankLand), cells carved (Explode); fall height in r for TankLand
     int tank = -1;         // tank involved (shooter for Fire/Explode, victim for hits)
     int other = -1;        // killer (TankDeath)
     int weapon = 0;        // -1 for a tank blowing up
@@ -208,7 +208,7 @@ private:
     void explodeProjectile(const Projectile& p, const Hit& hit);
     void split(const Projectile& p, std::vector<Projectile>& out);
     void blast(float x, float y, float r, float damage, int owner, int direct, int weapon);
-    void throwDirt(float cx, float cy, float r, const std::vector<Grain>& grains, int total, float speed);
+    void throwDirt(float cx, float r, const std::vector<Grain>& grains, int total, float vmin, float vmax);
     void stepClods();
     void damage(int tank, float amount, int owner);
     uint8_t sampleMaterial(float x, float y) const;

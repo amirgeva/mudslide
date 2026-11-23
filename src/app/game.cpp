@@ -179,7 +179,8 @@ int Game::runScreenshot(const Options& opt) {
             const Match& m = *match_;
             const bool late = opt.human || m.turnInRound() >= opt.turns;
             const Phase ph = m.phase();
-            if (s == "aim" || s == "pause") return late && ph == Phase::Aiming && (m.humanAiming() || m.phaseTime() > 1.1f);
+            if (s == "aim" || s == "pause" || s == "help")
+                return late && ph == Phase::Aiming && (m.humanAiming() || m.phaseTime() > 1.1f);
             if (s == "flight") return late && ph == Phase::Flight && m.phaseTime() > 0.7f;
             if (s == "blast") return late && ph == Phase::Blast && m.phaseTime() > 0.06f;
             if (s == "debris") return late && ph == Phase::Blast && m.phaseTime() > 0.3f && !m.clods().empty();
@@ -190,6 +191,7 @@ int Game::runScreenshot(const Options& opt) {
         };
         for (int i = 0; i < 60 * 1500 && !done(); ++i) update(step);
         if (s == "pause") paused_ = true;
+        if (s == "help") help_ = true;
         SDL_Log("screenshot: round %d turn %d phase %d", match_->round(), match_->turnInRound(), int(match_->phase()));
     }
 
@@ -293,6 +295,15 @@ void Game::onKeyDown(SDL_Keycode key, bool repeat) {
     if (!repeat && (key == SDLK_F11 || (key == SDLK_RETURN && (SDL_GetModState() & KMOD_ALT)))) {
         const bool full = (SDL_GetWindowFlags(window_) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
         SDL_SetWindowFullscreen(window_, full ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+        return;
+    }
+    if (!repeat && key == SDLK_F1) {
+        help_ = !help_;
+        audio_.play(Sfx::Tick);
+        return;
+    }
+    if (help_) {  // the legend swallows other keys until it is closed
+        if (!repeat && key == SDLK_ESCAPE) help_ = false;
         return;
     }
     if (scene_ == Scene::Menu) menuKey(key, repeat);
@@ -509,12 +520,13 @@ void Game::update(float dt) {
         consumeEvents(*demo_, false);
         updateEffects(*demo_, dt);
     } else if (match_) {
-        if (!paused_) {
+        const bool frozen = paused_ || help_;
+        if (!frozen) {
             steerHuman(dt);
             match_->update(dt);
         }
         consumeEvents(*match_, true);
-        updateEffects(*match_, paused_ ? 0.f : dt);
+        updateEffects(*match_, frozen ? 0.f : dt);
     }
 }
 
@@ -885,6 +897,7 @@ void Game::render() {
         if (paused_) renderPause();
     }
     renderCaption();
+    if (help_) renderHelp();
 }
 
 void Game::syncWorld(Match& m) {
@@ -1166,7 +1179,7 @@ void Game::renderHud(const Match& m, const View& v) {
             help = name + " (" + controlName(m.control(a)) + ") IS AIMING...";
         else
             help = MUD_ARROW_LEFT MUD_ARROW_RIGHT " AIM   " MUD_ARROW_UP MUD_ARROW_DOWN
-                   " POWER   SHIFT FINE   TAB WEAPON   SPACE FIRE   ESC PAUSE";
+                   " POWER   SHIFT FINE   TAB WEAPON   SPACE FIRE   ESC PAUSE   F1 HELP";
     }
     if (!help.empty()) drawText(help, int(left) + 6 * u, by, u, grey);
     drawText("ROUND " + std::to_string(m.round()) + "/" + std::to_string(m.rounds()), int(left + width) - 6 * u, by, u, grey, 1);
@@ -1233,6 +1246,45 @@ void Game::renderPause() {
     }
 }
 
+// F1: a short legend of every key.
+void Game::renderHelp() {
+    struct Row {
+        const char* keys;
+        const char* action;
+    };
+    static const Row kRows[] = {
+        {MUD_ARROW_LEFT MUD_ARROW_RIGHT "  A D", "TURN THE BARREL"},
+        {MUD_ARROW_UP MUD_ARROW_DOWN "  W S", "SHOT POWER"},
+        {"SHIFT", "FINE ADJUSTMENT"},
+        {"TAB  Q E  1-4", "CHOOSE WEAPON"},
+        {"SPACE  ENTER", "FIRE"},
+        {"ESC", "PAUSE / BACK"},
+        {"M", "SOUND ON / OFF"},
+        {"F11  ALT+ENTER", "FULLSCREEN"},
+        {"F1", "SHOW / HIDE THIS HELP"},
+    };
+    const int n = int(sizeof(kRows) / sizeof(kRows[0]));
+    const int u = uiScale();
+    int keyW = 0, actionW = 0;
+    for (const Row& r : kRows) {
+        keyW = std::max(keyW, textWidth(r.keys, u));
+        actionW = std::max(actionW, textWidth(r.action, u));
+    }
+    const int gap = 12 * u, margin = 16 * u;
+    const int w = margin * 2 + keyW + gap + actionW, h = (36 + 11 * n + 16) * u;
+    const int x = (viewW_ - w) / 2, y = (viewH_ - h) / 2;
+    fillRect(0.f, 0.f, float(viewW_), float(viewH_), rgba(0, 0, 0, 110));
+    drawPanel(x, y, w, h, 7 * u);
+    drawText("KEYS", x + w / 2, y + 8 * u, 2 * u, rgba(255, 226, 160), 0);
+    int ry = y + 32 * u;
+    for (const Row& r : kRows) {
+        drawText(r.keys, x + margin + keyW, ry, u, rgba(255, 214, 140), 1);
+        drawText(r.action, x + margin + keyW + gap, ry, u, rgba(236, 230, 220));
+        ry += 11 * u;
+    }
+    drawText("F1 OR ESC TO CLOSE", x + w / 2, y + h - 12 * u, u, rgba(160, 150, 140), 0);
+}
+
 void Game::renderMenu() {
     const int u = uiScale();
     fillRect(0.f, 0.f, float(viewW_), float(viewH_), rgba(6, 8, 14, 140));
@@ -1291,7 +1343,7 @@ void Game::renderMenu() {
         drawText(sel ? std::string(MUD_ARROW_LEFT " ") + value + " " MUD_ARROW_RIGHT : value, cx + 8 * u, y, u, sel ? hi : normal);
     }
     const std::string footer = MUD_ARROW_UP MUD_ARROW_DOWN " SELECT   " MUD_ARROW_LEFT MUD_ARROW_RIGHT
-                               " CHANGE   ENTER START   M SOUND   F11 FULLSCREEN";
+                               " CHANGE   ENTER START   F1 HELP";
     drawText(footer, cx, viewH_ - 12 * u, u, rgba(190, 180, 168), 0);
     if (settings_.muted) drawText("SOUND OFF", viewW_ - 6 * u, 6 * u, u, rgba(190, 180, 168), 1);
 }

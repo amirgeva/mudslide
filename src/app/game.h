@@ -19,7 +19,7 @@ struct Options {
     int width = 1280;
     int height = 720;
     std::string screenshot;      // render one frame to this .bmp and exit
-    std::string scene = "aim";   // menu | aim | flight | blast | debris | settle | round | over | pause
+    std::string scene = "aim";   // menu | aim | flight | blast | debris | settle | round | over | pause | help
     uint64_t seed = 0;           // 0 = random
     int players = 4;             // screenshot: number of CPU players
     int turns = 3;               // screenshot: turns to play before capturing
@@ -111,6 +111,7 @@ private:
     void renderHud(const Match& m, const View& v);
     void renderScoreboard(const Match& m);
     void renderPause();
+    void renderHelp();
     void renderMenu();
     void renderCaption();
 
@@ -147,6 +148,7 @@ private:
     std::unique_ptr<Match> demo_;   // CPU-only match playing behind the menu
     float demoWait_ = 0.f;
     bool paused_ = false;
+    bool help_ = false;  // F1 keyboard legend (also pauses a match)
     int pauseSel_ = 0;
     int menuSel_ = 0;
 
